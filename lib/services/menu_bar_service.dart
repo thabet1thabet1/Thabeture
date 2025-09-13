@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:system_tray/system_tray.dart';
@@ -20,8 +21,6 @@ class MenuBarService {
   MenuBarService._internal();
 
   // Service dependencies
-  late final ScreenshotService _screenshotService;
-  late final OcrService _ocrService;
   late final ClipboardService _clipboardService;
   
   // System tray instance
@@ -34,14 +33,12 @@ class MenuBarService {
     if (_isInitialized) return;
     
     try {
-      // Initialize service dependencies
-      _screenshotService = ScreenshotService();
-      _ocrService = OcrService();
+      // Initialize service dependencies using singletons
       _clipboardService = ClipboardService();
-      
-      await _screenshotService.initialize();
-      await _ocrService.initialize();
       await _clipboardService.initialize();
+      
+      // Start OCR service automatically
+      await _startOcrService();
       
       // Initialize system tray
       await _initializeSystemTray();
@@ -51,6 +48,26 @@ class MenuBarService {
     } catch (e) {
       debugPrint('Failed to initialize MenuBarService: $e');
       rethrow;
+    }
+  }
+  
+  /// Check if OCR service is running, if not show helpful message
+  Future<void> _startOcrService() async {
+    try {
+      debugPrint('MenuBarService: Checking OCR service status...');
+      
+      // Check if OCR service is already running
+      final flagFile = File('/tmp/ocr_service_running.flag');
+      if (await flagFile.exists()) {
+        debugPrint('MenuBarService: ✅ OCR service already running');
+        return;
+      }
+      
+      debugPrint('MenuBarService: ⚠️ OCR service not running');
+      debugPrint('MenuBarService: To enable automatic OCR, run: python3 ~/ocr_service.py &');
+      
+    } catch (e) {
+      debugPrint('MenuBarService: Error checking OCR service: $e');
     }
   }
   
@@ -181,7 +198,7 @@ class MenuBarService {
       debugPrint('Starting area screenshot capture...');
       
       // Capture screenshot of selected area
-      final screenshotPath = await _screenshotService.captureSelectedArea();
+      final screenshotPath = await ScreenshotService.instance.captureSelectedArea();
       
       if (screenshotPath == null) {
         await _showErrorNotification(AppConstants.errorScreenshotFailed);
@@ -203,7 +220,7 @@ class MenuBarService {
       debugPrint('Starting fullscreen screenshot capture...');
       
       // Capture fullscreen screenshot
-      final screenshotPath = await _screenshotService.captureFullScreen();
+      final screenshotPath = await ScreenshotService.instance.captureFullScreen();
       
       if (screenshotPath == null) {
         await _showErrorNotification(AppConstants.errorScreenshotFailed);
@@ -226,7 +243,14 @@ class MenuBarService {
       debugPrint('$type screenshot captured: $screenshotPath');
       
       // Perform OCR on the captured image
-      final extractedText = await _ocrService.extractTextFromImage(screenshotPath);
+      final extractedText = await OcrService.instance.extractText(screenshotPath);
+      
+      if (extractedText == null) {
+        // External OCR service is handling this - don't copy anything
+        await _showSuccessNotification('$type screenshot captured - OCR service processing...');
+        await _updateTrayTooltip('Ready - OCR processing externally');
+        return;
+      }
       
       if (extractedText.isEmpty) {
         await _showErrorNotification('No text found in $type screenshot');
@@ -278,8 +302,32 @@ class MenuBarService {
   /// Quit the application
   Future<void> _quit() async {
     debugPrint('Quitting application...');
+    
+    // Stop OCR service
+    await _stopOcrService();
+    
     await _systemTray.destroy();
     SystemNavigator.pop();
+  }
+  
+  /// Stop the OCR service
+  Future<void> _stopOcrService() async {
+    try {
+      debugPrint('MenuBarService: Stopping OCR service...');
+      
+      // Kill the OCR service process
+      await Process.run('pkill', ['-f', 'ocr_service.py']);
+      
+      // Remove flag file
+      final flagFile = File('/tmp/ocr_service_running.flag');
+      if (await flagFile.exists()) {
+        await flagFile.delete();
+      }
+      
+      debugPrint('MenuBarService: OCR service stopped');
+    } catch (e) {
+      debugPrint('MenuBarService: Error stopping OCR service: $e');
+    }
   }
   
   /// Test the screenshot flow (for development)
@@ -316,8 +364,6 @@ class MenuBarService {
   /// Dispose of resources
   void dispose() {
     _systemTray.destroy();
-    _screenshotService.dispose();
-    _ocrService.dispose();
     _clipboardService.dispose();
     _isInitialized = false;
   }

@@ -1,0 +1,5 @@
+{
+  "languages": ["eng"],
+  "default_language": "eng",
+  "tessdata_path": "assets/tessdata/"
+}

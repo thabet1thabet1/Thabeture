@@ -53,7 +53,7 @@ class ClipboardService {
   Future<bool> copyToClipboard(String text, {bool addToHistory = true}) async {
     try {
       if (text.isEmpty) {
-        debugPrint('Cannot copy empty text to clipboard');
+        debugPrint('ClipboardService: Cannot copy empty text to clipboard');
         return false;
       }
       
@@ -65,11 +65,12 @@ class ClipboardService {
         _addToHistory(text, ClipboardEntryType.text);
       }
       
-      debugPrint('Text copied to clipboard: ${text.length} characters');
+      debugPrint('ClipboardService: Text copied to clipboard successfully - ${text.length} characters');
+      debugPrint('ClipboardService: Text preview: ${text.substring(0, text.length > 50 ? 50 : text.length)}...');
       return true;
       
     } catch (e) {
-      debugPrint('Failed to copy text to clipboard: $e');
+      debugPrint('ClipboardService: Failed to copy text to clipboard: $e');
       return false;
     }
   }
